@@ -193,6 +193,10 @@
     <!-- SIDE MENU -->
     <div id="sideMenu" class="side-menu open">
 
+        <button id="testSoundBtn">
+            Test Sound
+          </button>
+
         <div class="menu-header">
             GPS Boundary
         </div>
@@ -212,30 +216,16 @@
         </div>
 
         <div class="card">
-            <div
-            style="
+            <div style="
               display:flex;
               flex-direction:column;
               gap:8px;
               margin-bottom:8px;
-            "
-          >
-            <input
-              id="latInput"
-              type="number"
-              step="any"
-              placeholder="Latitude"
-              class="coord-input"
-            />
-          
-            <input
-              id="lngInput"
-              type="number"
-              step="any"
-              placeholder="Longitude"
-              class="coord-input"
-            />
-          </div>
+            ">
+                <input id="latInput" type="number" step="any" placeholder="Latitude" class="coord-input" />
+
+                <input id="lngInput" type="number" step="any" placeholder="Longitude" class="coord-input" />
+            </div>
             <button id="addCoordBtn">
                 Add Coordinate
             </button>
@@ -261,6 +251,31 @@
             <button id="clearBtn" class="danger">
                 Clear Boundary
             </button>
+        </div>
+
+        <div class="card">
+
+            <div style="font-weight:600;margin-bottom:10px;">
+                Save / Load Polygon
+            </div>
+
+            <input id="polygonName" type="text" placeholder="Polygon name" class="coord-input"
+                style="margin-bottom:8px;width:100%;box-sizing:border-box;" />
+
+            <button id="savePolygonBtn" style="margin-bottom:10px;">
+                Save Polygon
+            </button>
+
+            <select id="savedPolygons" class="coord-input" style="width:100%;margin-bottom:8px;">
+                <option value="">
+                    Select saved polygon
+                </option>
+            </select>
+
+            <button id="loadPolygonBtn">
+                Load Polygon
+            </button>
+
         </div>
 
     </div>
@@ -289,30 +304,72 @@
         const statusEl = document.getElementById('status');
         const alertOverlay = document.getElementById('alertOverlay');
 
+        const polygonNameInput = document.getElementById('polygonName');
+        const savedPolygonsSelect = document.getElementById('savedPolygons');
+
+        // -----------------------------
+        // INIT
+        // -----------------------------
+        refreshSavedPolygonDropdown();
+
         // -----------------------------
         // AUDIO BEEP
         // -----------------------------
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let audioCtx;
+let audioUnlocked = false;
 
-        function beep() {
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
 
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
 
-            oscillator.type = 'sine';
-            oscillator.frequency.value = 880;
+  audioUnlocked = true;
+}
 
-            gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+// MUST be called from user gesture (important for iPhone)
+document.body.addEventListener('touchstart', initAudio, { once: true });
 
-            oscillator.start();
+function beep() {
+  if (!audioUnlocked || !audioCtx) return;
 
-            setTimeout(() => {
-                oscillator.stop();
-            }, 250);
-        }
+  const oscillator = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
 
+  oscillator.type = 'sine';
+  oscillator.frequency.value = 880;
+
+  gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(
+    0.0001,
+    audioCtx.currentTime + 0.3
+  );
+
+  oscillator.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  oscillator.start();
+  oscillator.stop(audioCtx.currentTime + 0.3);
+}
+
+function alertOutside() {
+  beep();
+
+  if (navigator.vibrate) {
+    navigator.vibrate([300, 100, 300]);
+  }
+}
+
+document
+  .getElementById('testSoundBtn')
+  .addEventListener('click', () => {
+    initAudio();
+    beep();
+  });
+  
         // -----------------------------
         // POINT IN POLYGON
         // -----------------------------
@@ -403,6 +460,40 @@
             });
 
         // -----------------------------
+        // SAVE POLYGON
+        // -----------------------------
+        document
+            .getElementById('savePolygonBtn')
+            .addEventListener('click', () => {
+
+                if (polygonPoints.length < 3) {
+                    alert('Create a polygon first.');
+                    return;
+                }
+
+                const name =
+                    polygonNameInput.value.trim();
+
+                if (!name) {
+                    alert('Enter a polygon name.');
+                    return;
+                }
+
+                const data = getSavedPolygons();
+
+                data[name] = polygonPoints.map(p => ({
+                    lat: p.lat,
+                    lng: p.lng
+                }));
+
+                savePolygonsToStorage(data);
+
+                refreshSavedPolygonDropdown();
+
+                alert('Polygon saved.');
+
+            });
+        // -----------------------------
         // COORDINATE LIST UI
         // -----------------------------
         const coordList = document.getElementById('coordList');
@@ -426,6 +517,130 @@
     `)
                 .join('');
         }
+
+        // -----------------------------
+        // LOCAL STORAGE
+        // -----------------------------
+        function getSavedPolygons() {
+            return JSON.parse(
+                localStorage.getItem('savedPolygons') || '{}'
+            );
+        }
+
+        function savePolygonsToStorage(data) {
+            localStorage.setItem(
+                'savedPolygons',
+                JSON.stringify(data)
+            );
+        }
+
+        function refreshSavedPolygonDropdown() {
+
+            const data = getSavedPolygons();
+
+            savedPolygonsSelect.innerHTML = `
+    <option value="">
+      Select saved polygon
+    </option>
+  `;
+
+            Object.keys(data).forEach(name => {
+
+                const option =
+                    document.createElement('option');
+
+                option.value = name;
+                option.textContent = name;
+
+                savedPolygonsSelect.appendChild(option);
+
+            });
+
+        }
+
+        // -----------------------------
+        // LOAD POLYGON
+        // -----------------------------
+        document
+            .getElementById('loadPolygonBtn')
+            .addEventListener('click', () => {
+
+                const selected =
+                    savedPolygonsSelect.value;
+
+                if (!selected) {
+                    alert('Select a polygon.');
+                    return;
+                }
+
+                const data = getSavedPolygons();
+
+                const points = data[selected];
+
+                if (!points || points.length < 3) {
+                    alert('Invalid polygon.');
+                    return;
+                }
+
+                // Clear existing
+                polygonPoints = [];
+                boundaryFinished = false;
+
+                if (polygon) {
+                    map.removeLayer(polygon);
+                    polygon = null;
+                }
+
+                if (drawingLine) {
+                    map.removeLayer(drawingLine);
+                    drawingLine = null;
+                }
+
+                map.eachLayer(layer => {
+
+                    if (
+                        layer instanceof L.CircleMarker &&
+                        layer !== userMarker
+                    ) {
+                        map.removeLayer(layer);
+                    }
+
+                });
+
+                // Load points
+                points.forEach(p => {
+
+                    addPolygonPoint({
+                        lat: p.lat,
+                        lng: p.lng
+                    });
+
+                });
+
+                // Auto-finish polygon
+                boundaryFinished = true;
+
+                if (drawingLine) {
+                    map.removeLayer(drawingLine);
+                }
+
+                polygon = L.polygon(polygonPoints, {
+                    color: '#00ff88',
+                    fillColor: '#00ff88',
+                    fillOpacity: 0.2
+                }).addTo(map);
+
+                map.fitBounds(polygon.getBounds());
+
+                sideMenu.classList.add('closed');
+
+                statusEl.innerHTML = `
+      Loaded polygon:
+      <br>
+      <strong>${selected}</strong>
+    `;
+
+            });
 
         // -----------------------------
         // FINISH POLYGON
@@ -527,7 +742,7 @@
 
                 if (!inside) {
                     if (!currentlyOutside) {
-                        beep();
+                        alertOutside();
                     }
 
                     currentlyOutside = true;
@@ -587,6 +802,8 @@
             sideMenu.classList.toggle('closed');
 
         });
+
+
     </script>
 
 </body>
