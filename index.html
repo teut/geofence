@@ -212,12 +212,30 @@
         </div>
 
         <div class="card">
-            <div style="display:flex;gap:8px;margin-bottom:8px;">
-                <input id="latInput" type="number" step="any" placeholder="Latitude" class="coord-input" />
-
-                <input id="lngInput" type="number" step="any" placeholder="Longitude" class="coord-input" />
-            </div>
-
+            <div
+            style="
+              display:flex;
+              flex-direction:column;
+              gap:8px;
+              margin-bottom:8px;
+            "
+          >
+            <input
+              id="latInput"
+              type="number"
+              step="any"
+              placeholder="Latitude"
+              class="coord-input"
+            />
+          
+            <input
+              id="lngInput"
+              type="number"
+              step="any"
+              placeholder="Longitude"
+              class="coord-input"
+            />
+          </div>
             <button id="addCoordBtn">
                 Add Coordinate
             </button>
