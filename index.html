@@ -195,7 +195,7 @@
 
         <button id="testSoundBtn">
             Test Sound
-          </button>
+        </button>
 
         <div class="menu-header">
             GPS Boundary
@@ -316,60 +316,60 @@
         // AUDIO BEEP
         // -----------------------------
         let audioCtx;
-let audioUnlocked = false;
+        let audioUnlocked = false;
 
-function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
 
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
 
-  audioUnlocked = true;
-}
+            audioUnlocked = true;
+        }
 
-// MUST be called from user gesture (important for iPhone)
-document.body.addEventListener('touchstart', initAudio, { once: true });
+        // MUST be called from user gesture (important for iPhone)
+        document.body.addEventListener('touchstart', initAudio, { once: true });
 
-function beep() {
-  if (!audioUnlocked || !audioCtx) return;
+        function beep() {
+            if (!audioUnlocked || !audioCtx) return;
 
-  const oscillator = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
+            const oscillator = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
 
-  oscillator.type = 'sine';
-  oscillator.frequency.value = 880;
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 880;
 
-  gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(
-    0.0001,
-    audioCtx.currentTime + 0.3
-  );
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(
+                0.0001,
+                audioCtx.currentTime + 0.3
+            );
 
-  oscillator.connect(gain);
-  gain.connect(audioCtx.destination);
+            oscillator.connect(gain);
+            gain.connect(audioCtx.destination);
 
-  oscillator.start();
-  oscillator.stop(audioCtx.currentTime + 0.3);
-}
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.3);
+        }
 
-function alertOutside() {
-  beep();
+        function alertOutside() {
+            beep();
 
-  if (navigator.vibrate) {
-    navigator.vibrate([300, 100, 300]);
-  }
-}
+            if (navigator.vibrate) {
+                navigator.vibrate([300, 100, 300]);
+            }
+        }
 
-document
-  .getElementById('testSoundBtn')
-  .addEventListener('click', () => {
-    initAudio();
-    beep();
-  });
-  
+        document
+            .getElementById('testSoundBtn')
+            .addEventListener('click', () => {
+                initAudio();
+                beep();
+            });
+
         // -----------------------------
         // POINT IN POLYGON
         // -----------------------------
@@ -408,9 +408,20 @@ document
         }
 
         map.on('click', (e) => {
+
+            // If menu is open:
+            // close it and DO NOT add point
+            if (!sideMenu.classList.contains('closed')) {
+
+                sideMenu.classList.add('closed');
+
+                return;
+            }
+
             if (boundaryFinished) return;
 
             addPolygonPoint(e.latlng);
+
         });
 
         function redrawShape() {
