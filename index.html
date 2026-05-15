@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>GPS Boundary Alarm</title>
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #111;
+            color: white;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .top-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .card {
+            background: rgba(20, 20, 20, 0.88);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            padding: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        button {
+            border: none;
+            border-radius: 12px;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            background: #0a84ff;
+            color: white;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .danger {
+            background: #ff3b30;
+        }
+
+        .status {
+            font-size: 15px;
+            line-height: 1.4;
+        }
+
+        #alertOverlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 0, 0, 0.25);
+            z-index: 999;
+            display: none;
+            animation: flash 1s infinite;
+            pointer-events: none;
+        }
+
+        @keyframes flash {
+            0% {
+                opacity: 0.2;
+            }
+
+            50% {
+                opacity: 0.8;
+            }
+
+            100% {
+                opacity: 0.2;
+            }
+        }
+
+        .instructions {
+            font-size: 13px;
+            opacity: 0.85;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="map"></div>
+
+    <div id="alertOverlay"></div>
+
+    <div class="top-panel">
+
+        <div class="card">
+            <div class="status" id="status">
+                Waiting for GPS...
+            </div>
+        </div>
+
+        <div class="card instructions">
+            Add polygon points either by:
+            <ul style="padding-left:18px;margin:8px 0;">
+                <li>Tapping on the map</li>
+                <li>Entering GPS coordinates manually</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <input id="latInput" type="number" step="any" placeholder="Latitude"
+                    style="flex:1;padding:10px;border-radius:10px;border:none;" />
+
+                <input id="lngInput" type="number" step="any" placeholder="Longitude"
+                    style="flex:1;padding:10px;border-radius:10px;border:none;" />
+            </div>
+
+            <button id="addCoordBtn">
+                Add Coordinate
+            </button>
+        </div>
+
+        <div class="card">
+            <div style="font-weight:600;margin-bottom:8px;">
+                Polygon Points
+            </div>
+
+            <div id="coordList" style="
+          max-height:140px;
+          overflow:auto;
+          font-size:13px;
+          line-height:1.5;
+        ">
+                No points yet.
+            </div>
+        </div>
+
+        <div class="card">
+            <button id="finishBtn">Finish Boundary</button>
+        </div>
+
+        <div class="card">
+            <button id="clearBtn" class="danger">
+                Clear Boundary
+            </button>
+        </div>
+
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // -----------------------------
+        // MAP SETUP
+        // -----------------------------
+        const map = L.map('map').setView([51.0, 4.0], 15);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // -----------------------------
+        // STATE
+        // -----------------------------
+        let userMarker = null;
+        let polygonPoints = [];
+        let polygon = null;
+        let drawingLine = null;
+        let boundaryFinished = false;
+        let currentlyOutside = false;
+
+        const statusEl = document.getElementById('status');
+        const alertOverlay = document.getElementById('alertOverlay');
+
+        // -----------------------------
+        // AUDIO BEEP
+        // -----------------------------
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function beep() {
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 880;
+
+            gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+
+            oscillator.start();
+
+            setTimeout(() => {
+                oscillator.stop();
+            }, 250);
+        }
+
+        // -----------------------------
+        // POINT IN POLYGON
+        // -----------------------------
+        function isPointInPolygon(point, vs) {
+            const x = point.lng, y = point.lat;
+
+            let inside = false;
+
+            for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+                const xi = vs[i].lng, yi = vs[i].lat;
+                const xj = vs[j].lng, yj = vs[j].lat;
+
+                const intersect =
+                    ((yi > y) !== (yj > y)) &&
+                    (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+
+                if (intersect) inside = !inside;
+            }
+
+            return inside;
+        }
+
+        // -----------------------------
+        // DRAW POINTS
+        // -----------------------------
+        function addPolygonPoint(latlng) {
+            polygonPoints.push(latlng);
+
+            L.circleMarker(latlng, {
+                radius: 6,
+                color: '#00ff88'
+            }).addTo(map);
+
+            redrawShape();
+            refreshCoordinateList();
+        }
+
+        map.on('click', (e) => {
+            if (boundaryFinished) return;
+
+            addPolygonPoint(e.latlng);
+        });
+
+        function redrawShape() {
+            if (drawingLine) {
+                map.removeLayer(drawingLine);
+            }
+
+            drawingLine = L.polyline(polygonPoints, {
+                color: '#00ff88',
+                weight: 3
+            }).addTo(map);
+        }
+
+        // -----------------------------
+        // MANUAL COORDINATE ENTRY
+        // -----------------------------
+        document
+            .getElementById('addCoordBtn')
+            .addEventListener('click', () => {
+
+                if (boundaryFinished) return;
+
+                const lat = parseFloat(
+                    document.getElementById('latInput').value
+                );
+
+                const lng = parseFloat(
+                    document.getElementById('lngInput').value
+                );
+
+                if (isNaN(lat) || isNaN(lng)) {
+                    alert('Enter valid coordinates.');
+                    return;
+                }
+
+                const latlng = {
+                    lat,
+                    lng
+                };
+
+                addPolygonPoint(latlng);
+
+                map.panTo(latlng);
+
+                document.getElementById('latInput').value = '';
+                document.getElementById('lngInput').value = '';
+            });
+
+        // -----------------------------
+        // COORDINATE LIST UI
+        // -----------------------------
+        const coordList = document.getElementById('coordList');
+
+        function refreshCoordinateList() {
+            if (polygonPoints.length === 0) {
+                coordList.innerHTML = 'No points yet.';
+                return;
+            }
+
+            coordList.innerHTML = polygonPoints
+                .map((p, index) => `
+      <div style="
+        padding:4px 0;
+        border-bottom:1px solid rgba(255,255,255,0.08);
+      ">
+        ${index + 1}.
+        ${p.lat.toFixed(6)},
+        ${p.lng.toFixed(6)}
+      </div>
+    `)
+                .join('');
+        }
+
+        // -----------------------------
+        // FINISH POLYGON
+        // -----------------------------
+        document.getElementById('finishBtn').addEventListener('click', () => {
+            if (polygonPoints.length < 3) {
+                alert('You need at least 3 points.');
+                return;
+            }
+
+            boundaryFinished = true;
+
+            if (drawingLine) {
+                map.removeLayer(drawingLine);
+            }
+
+            polygon = L.polygon(polygonPoints, {
+                color: '#00ff88',
+                fillColor: '#00ff88',
+                fillOpacity: 0.2
+            }).addTo(map);
+
+            map.fitBounds(polygon.getBounds());
+
+            statusEl.innerHTML = `
+      Boundary active.<br>
+      Stay inside the green area.
+    `;
+        });
+
+        // -----------------------------
+        // CLEAR
+        // -----------------------------
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            polygonPoints = [];
+            boundaryFinished = false;
+            currentlyOutside = false;
+
+            if (polygon) {
+                map.removeLayer(polygon);
+                polygon = null;
+            }
+
+            if (drawingLine) {
+                map.removeLayer(drawingLine);
+                drawingLine = null;
+            }
+
+            map.eachLayer(layer => {
+                if (
+                    layer instanceof L.CircleMarker &&
+                    layer !== userMarker
+                ) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            alertOverlay.style.display = 'none';
+
+            statusEl.innerHTML = 'Boundary cleared.';
+        });
+
+        // -----------------------------
+        // GPS TRACKING
+        // -----------------------------
+        function onLocationUpdate(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+
+            const latlng = [lat, lng];
+
+            if (!userMarker) {
+                userMarker = L.circleMarker(latlng, {
+                    radius: 10,
+                    color: '#0a84ff',
+                    fillColor: '#0a84ff',
+                    fillOpacity: 1
+                }).addTo(map);
+
+                map.setView(latlng, 18);
+            } else {
+                userMarker.setLatLng(latlng);
+            }
+
+            statusEl.innerHTML = `
+      GPS Active<br>
+      Lat: ${lat.toFixed(5)}<br>
+      Lng: ${lng.toFixed(5)}
+    `;
+
+            if (boundaryFinished && polygonPoints.length >= 3) {
+                const inside = isPointInPolygon(
+                    { lat, lng },
+                    polygonPoints
+                );
+
+                if (!inside) {
+                    if (!currentlyOutside) {
+                        beep();
+                    }
+
+                    currentlyOutside = true;
+
+                    alertOverlay.style.display = 'block';
+
+                    statusEl.innerHTML += `
+          <br><br>
+          <span style="color:#ff453a;font-weight:bold;">
+            OUTSIDE BOUNDARY
+          </span>
+        `;
+                } else {
+                    currentlyOutside = false;
+                    alertOverlay.style.display = 'none';
+                }
+            }
+        }
+
+        function onLocationError(err) {
+            statusEl.innerHTML = `
+      GPS Error:<br>
+      ${err.message}
+    `;
+        }
+
+        navigator.geolocation.watchPosition(
+            onLocationUpdate,
+            onLocationError,
+            {
+                enableHighAccuracy: true,
+                maximumAge: 1000,
+                timeout: 10000
+            }
+        );
+
+        // -----------------------------
+        // iPhone Audio Unlock
+        // -----------------------------
+        document.body.addEventListener('touchstart', async () => {
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+            }
+        }, { once: true });
+
+    </script>
+
+</body>
+
+</html>
