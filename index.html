@@ -98,6 +98,84 @@
             font-size: 13px;
             opacity: 0.85;
         }
+
+        /* -----------------------------
+   HAMBURGER MENU
+----------------------------- */
+
+        .hamburger {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            z-index: 2000;
+
+            width: 52px;
+            height: 52px;
+
+            border: none;
+            border-radius: 14px;
+
+            background: rgba(20, 20, 20, 0.9);
+            color: white;
+
+            font-size: 28px;
+            font-weight: bold;
+
+            backdrop-filter: blur(10px);
+
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+        }
+
+        .side-menu {
+            position: absolute;
+            top: 0;
+            left: 0;
+
+            width: 320px;
+            max-width: 85vw;
+
+            height: 100%;
+
+            background: rgba(10, 10, 10, 0.95);
+
+            z-index: 1500;
+
+            overflow-y: auto;
+
+            padding:
+                calc(env(safe-area-inset-top) + 70px) 14px 30px 14px;
+
+            box-sizing: border-box;
+
+            transition: transform 0.28s ease;
+
+            backdrop-filter: blur(14px);
+        }
+
+        .side-menu.closed {
+            transform: translateX(-105%);
+        }
+
+        .menu-header {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 14px;
+        }
+
+        .coord-input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 10px;
+            border: none;
+            font-size: 15px;
+        }
+
+        .coord-list {
+            max-height: 180px;
+            overflow-y: auto;
+            font-size: 13px;
+            line-height: 1.5;
+        }
     </style>
 </head>
 
@@ -107,7 +185,17 @@
 
     <div id="alertOverlay"></div>
 
-    <div class="top-panel">
+    <!-- HAMBURGER BUTTON -->
+    <button id="menuToggle" class="hamburger">
+        ☰
+    </button>
+
+    <!-- SIDE MENU -->
+    <div id="sideMenu" class="side-menu open">
+
+        <div class="menu-header">
+            GPS Boundary
+        </div>
 
         <div class="card">
             <div class="status" id="status">
@@ -116,20 +204,18 @@
         </div>
 
         <div class="card instructions">
-            Add polygon points either by:
+            Add polygon points by:
             <ul style="padding-left:18px;margin:8px 0;">
                 <li>Tapping on the map</li>
-                <li>Entering GPS coordinates manually</li>
+                <li>Entering coordinates manually</li>
             </ul>
         </div>
 
         <div class="card">
             <div style="display:flex;gap:8px;margin-bottom:8px;">
-                <input id="latInput" type="number" step="any" placeholder="Latitude"
-                    style="flex:1;padding:10px;border-radius:10px;border:none;" />
+                <input id="latInput" type="number" step="any" placeholder="Latitude" class="coord-input" />
 
-                <input id="lngInput" type="number" step="any" placeholder="Longitude"
-                    style="flex:1;padding:10px;border-radius:10px;border:none;" />
+                <input id="lngInput" type="number" step="any" placeholder="Longitude" class="coord-input" />
             </div>
 
             <button id="addCoordBtn">
@@ -142,18 +228,15 @@
                 Polygon Points
             </div>
 
-            <div id="coordList" style="
-          max-height:140px;
-          overflow:auto;
-          font-size:13px;
-          line-height:1.5;
-        ">
+            <div id="coordList" class="coord-list">
                 No points yet.
             </div>
         </div>
 
         <div class="card">
-            <button id="finishBtn">Finish Boundary</button>
+            <button id="finishBtn">
+                Finish Boundary
+            </button>
         </div>
 
         <div class="card">
@@ -353,6 +436,9 @@
       Boundary active.<br>
       Stay inside the green area.
     `;
+
+            sideMenu.classList.add('closed');
+
         });
 
         // -----------------------------
@@ -469,6 +555,20 @@
             }
         }, { once: true });
 
+        // -----------------------------
+        // HAMBURGER MENU
+        // -----------------------------
+        const sideMenu =
+            document.getElementById('sideMenu');
+
+        const menuToggle =
+            document.getElementById('menuToggle');
+
+        menuToggle.addEventListener('click', () => {
+
+            sideMenu.classList.toggle('closed');
+
+        });
     </script>
 
 </body>
