@@ -2,12 +2,13 @@
   "appId": "com.codex.geofence",
   "appName": "GeoFence",
   "webDir": "dist",
+  "backgroundColor": "#101316",
   "plugins": {
     "Geolocation": {
       "permissions": ["location"]
     }
   },
   "ios": {
-    "contentInset": "automatic"
+    "contentInset": "never"
   }
 }

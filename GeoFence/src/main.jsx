@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Geolocation } from "@capacitor/geolocation";
+import { Haptics } from "@capacitor/haptics";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -11,7 +12,6 @@ import {
   PanelBottomClose,
   Save,
   Settings,
-  Volume2,
   X
 } from "lucide-react";
 import "./styles.css";
@@ -138,6 +138,7 @@ function App() {
   const polygonRef = useRef(null);
   const locationRef = useRef(null);
   const audioRef = useRef(null);
+  const wasOutsideRef = useRef(false);
 
   const validPoints = useMemo(
     () =>
@@ -165,7 +166,8 @@ function App() {
   useEffect(() => {
     const map = L.map("map", {
       zoomControl: false,
-      attributionControl: false
+      attributionControl: false,
+      doubleClickZoom: false
     }).setView(DEFAULT_CENTER, settings.defaultZoom);
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -221,7 +223,8 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
-    let watchId = null;
+    let nativeWatchId = null;
+    let webWatchId = null;
 
     const applyReading = (reading) => {
       if (cancelled || !reading?.coords) return;
@@ -256,12 +259,35 @@ function App() {
       setWatching(false);
     };
 
+    const startWebWatching = () => {
+      if (cancelled || webWatchId || !navigator.geolocation) return false;
+      webWatchId = navigator.geolocation.watchPosition(applyReading, applyError, {
+        enableHighAccuracy: true,
+        maximumAge: 2000,
+        timeout: 12000
+      });
+      return true;
+    };
+
     const startWatching = async () => {
       try {
         if (window.Capacitor?.isNativePlatform?.()) {
-          await Geolocation.requestPermissions();
-          watchId = await Geolocation.watchPosition(
-            { enableHighAccuracy: true, maximumAge: 2000, timeout: 12000 },
+          const permissions = await Geolocation.requestPermissions();
+          if (permissions.location === "denied") {
+            applyError(new Error("Location permission is blocked."));
+            return;
+          }
+
+          Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 15000
+          })
+            .then(applyReading)
+            .catch(applyError);
+
+          nativeWatchId = await Geolocation.watchPosition(
+            { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 },
             (reading, error) => {
               if (error) applyError(error);
               else applyReading(reading);
@@ -270,16 +296,9 @@ function App() {
           return;
         }
 
-        if (!navigator.geolocation) {
+        if (!startWebWatching()) {
           applyError(new Error("Location is not available in this browser."));
-          return;
         }
-
-        watchId = navigator.geolocation.watchPosition(applyReading, applyError, {
-          enableHighAccuracy: true,
-          maximumAge: 2000,
-          timeout: 12000
-        });
       } catch (error) {
         applyError(error);
       }
@@ -289,10 +308,11 @@ function App() {
 
     return () => {
       cancelled = true;
-      if (watchId && window.Capacitor?.isNativePlatform?.()) {
-        Geolocation.clearWatch({ id: watchId }).catch(() => {});
-      } else if (watchId && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchId);
+      if (nativeWatchId && window.Capacitor?.isNativePlatform?.()) {
+        Geolocation.clearWatch({ id: nativeWatchId }).catch(() => {});
+      }
+      if (webWatchId && navigator.geolocation) {
+        navigator.geolocation.clearWatch(webWatchId);
       }
     };
   }, [settings.defaultZoom]);
@@ -306,28 +326,45 @@ function App() {
   }, [position, validPoints, closed]);
 
   useEffect(() => {
-    if (!outside || !settings.beepEnabled) return;
+    const wasOutside = wasOutsideRef.current;
+    wasOutsideRef.current = outside;
+    if (!outside || wasOutside) return;
 
-    const beep = () => {
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) return;
-      if (!audioRef.current) audioRef.current = new AudioContext();
-      const context = audioRef.current;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "square";
-      oscillator.frequency.value = 880;
-      gain.gain.setValueAtTime(0.001, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.24, context.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.26);
-      oscillator.connect(gain).connect(context.destination);
-      oscillator.start();
-      oscillator.stop(context.currentTime + 0.28);
+    const vibrate = async () => {
+      if (window.Capacitor?.isNativePlatform?.()) {
+        try {
+          await Haptics.vibrate({ duration: 250 });
+          return;
+        } catch {
+          // Fall through to the browser vibration API when native haptics are unavailable.
+        }
+      }
+      navigator.vibrate?.(250);
     };
 
-    beep();
-    const timer = window.setInterval(beep, 1250);
-    return () => window.clearInterval(timer);
+    vibrate();
+    if (!settings.beepEnabled) return;
+
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!audioRef.current) audioRef.current = new AudioContext();
+    const context = audioRef.current;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const filter = context.createBiquadFilter();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(620, now);
+    oscillator.frequency.exponentialRampToValueAtTime(420, now + 0.34);
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(1200, now);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.exponentialRampToValueAtTime(0.16, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+    oscillator.connect(filter).connect(gain).connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.45);
   }, [outside, settings.beepEnabled]);
 
   const focusBoundary = () => {
@@ -372,7 +409,7 @@ function App() {
   const editorPoints = points.length ? points : [["", ""], ["", ""], ["", ""]];
 
   return (
-    <main className={`appShell ${outside ? "danger" : ""}`}>
+    <main className="appShell">
       <div id="map" className="mapCanvas" />
 
       {settings.showGpsStatus ? (
@@ -403,13 +440,6 @@ function App() {
           <Crosshair size={21} />
         </button>
       </section>
-
-      {outside ? (
-        <div className="exitFlash">
-          <Volume2 size={32} />
-          <strong>You left the boundary</strong>
-        </div>
-      ) : null}
 
       <nav className="bottomBar" aria-label="Boundary tools">
         <button onClick={() => setActiveModal("coords")}>
