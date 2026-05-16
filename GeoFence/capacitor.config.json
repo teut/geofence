@@ -1,0 +1,13 @@
+{
+  "appId": "com.codex.geofence",
+  "appName": "GeoFence",
+  "webDir": "dist",
+  "plugins": {
+    "Geolocation": {
+      "permissions": ["location"]
+    }
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}
